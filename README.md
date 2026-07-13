@@ -2,6 +2,8 @@
 
 Fine-tune **LiquidAI/LFM2.5-350M** on Databricks GPU using **nvidia/Nemotron-Personas-USA**.
 
+**Status:** Successful end-to-end run on Databricks serverless **1xH100** — the primary compute used for this LoRA fine-tuning demo. Training loss dropped ~56% over 1 epoch (see [Results](#results-last-successful-run)).
+
 ## Experiment
 
 | Item | Value |

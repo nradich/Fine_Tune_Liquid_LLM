@@ -1,0 +1,98 @@
+# Databricks Asset Bundle — fine-tune LFM2.5-350M on serverless GPU (AI Runtime)
+# Deploy:  databricks bundle deploy -t dev
+# Run:     databricks bundle run finetune_lfm25_personas -t dev
+
+bundle:
+  name: liquid-ft-lfm25
+
+variables:
+  uc_catalog:
+    description: Unity Catalog catalog for the volume
+    default: main
+  uc_schema:
+    description: Unity Catalog schema for the volume
+    default: default
+  uc_volume:
+    description: Volume name under catalog.schema
+    default: liquid_ft
+  n_samples:
+    description: Number of Nemotron persona rows to train on
+    default: "3000"
+  num_train_epochs:
+    description: SFT epochs
+    default: "1"
+  max_seq_length:
+    description: Max sequence length for SFT
+    default: "1024"
+
+workspace:
+  root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
+
+artifacts: {}
+
+resources:
+  jobs:
+    finetune_lfm25_personas:
+      name: finetune-lfm25-personas
+      description: >
+        LoRA SFT of LiquidAI/LFM2.5-350M on nvidia/Nemotron-Personas-USA
+        using serverless GPU 1xH100 (AI Runtime).
+      max_concurrent_runs: 1
+      timeout_seconds: 14400
+      tags:
+        project: liquid-ft
+        model: lfm25-350m
+
+      parameters:
+        - name: uc_catalog
+          default: ${var.uc_catalog}
+        - name: uc_schema
+          default: ${var.uc_schema}
+        - name: uc_volume
+          default: ${var.uc_volume}
+        - name: n_samples
+          default: ${var.n_samples}
+        - name: num_train_epochs
+          default: ${var.num_train_epochs}
+        - name: max_seq_length
+          default: ${var.max_seq_length}
+
+      # Serverless GPU job env. Notebook also %pip installs TRL/PEFT (required for AI Runtime jobs).
+      # Note: Jobs API enum currently validates GPU_1xA10 | GPU_8xH100; 1xH100 may be UI-only on some workspaces.
+      # Prefer GPU_1xH100 when accepted; fall back is GPU_1xA10 (still fine for 350M LoRA).
+      environments:
+        - environment_key: gpu_env
+          spec:
+            environment_version: "4"
+            dependencies:
+              - "transformers>=4.55.0"
+              - "trl>=0.9.0"
+              - peft
+              - accelerate
+              - datasets
+
+      tasks:
+        - task_key: finetune
+          email_notifications: {}
+          notebook_task:
+            notebook_path: ./notebooks/01_finetune_lfm25_personas.py
+            base_parameters:
+              uc_catalog: "{{job.parameters.uc_catalog}}"
+              uc_schema: "{{job.parameters.uc_schema}}"
+              uc_volume: "{{job.parameters.uc_volume}}"
+              n_samples: "{{job.parameters.n_samples}}"
+              num_train_epochs: "{{job.parameters.num_train_epochs}}"
+              max_seq_length: "{{job.parameters.max_seq_length}}"
+          environment_key: gpu_env
+          compute:
+            hardware_accelerator: GPU_1xH100
+
+targets:
+  dev:
+    mode: development
+    default: true
+
+  prod:
+    mode: production
+    workspace:
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}

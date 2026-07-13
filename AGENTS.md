@@ -14,7 +14,7 @@
 - Dataset: `nvidia/Nemotron-Personas-USA` (persona roleplay SFT, ~3k-row demo)
 - Training: TRL `SFTTrainer` + PEFT LoRA
 - Compute: Databricks serverless GPU **1xH100**, environment **AI v5** (Python 3.12)
-- Storage: UC volume `/Volumes/<catalog>/<schema>/liquid_ft/`
+- Storage: UC volume `/Volumes/benchmarks/default/liquid_ft/` (managed; avoid broken `main` credentials)
 - Deploy: Databricks Asset Bundle `databricks.yml` → job `finetune_lfm25_personas`
 - CLI (profile `DEFAULT`): `databricks bundle deploy -t dev` then `databricks bundle run finetune_lfm25_personas -t dev`
 

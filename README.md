@@ -45,6 +45,6 @@ The job uses serverless GPU **1xH100** + AI v5 (`databricks.yml`).
 
 ## Notes
 
-- Catalog and schema must already exist; the notebook creates the volume only.
+- Defaults write to managed volume `benchmarks.default.liquid_ft` (works in this workspace). Avoid `main` if UC storage credentials are broken.
 - Training uses a small demo slice (~3k rows, 1 epoch), not the full 1M dataset.
 - The notebook streams the HF dataset so it does not download all ~2.6GB up front.

@@ -19,7 +19,7 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install -q "transformers>=4.55.0" "trl>=0.9.0" peft accelerate datasets
+# MAGIC %pip install -q "transformers>=4.55.0" "trl>=0.9.0" peft accelerate datasets "huggingface_hub>=0.24.0" pyarrow pandas
 
 # COMMAND ----------
 
@@ -28,7 +28,7 @@
 
 # COMMAND ----------
 
-dbutils.widgets.text("uc_catalog", "main")
+dbutils.widgets.text("uc_catalog", "benchmarks")
 dbutils.widgets.text("uc_schema", "default")
 dbutils.widgets.text("uc_volume", "liquid_ft")
 dbutils.widgets.text("n_samples", "3000")
@@ -68,8 +68,16 @@ assert torch.cuda.is_available(), "No GPU. Set Hardware accelerator to 1xH100."
 print(f"GPU: {torch.cuda.get_device_name(0)}")
 print(f"bf16 supported: {torch.cuda.is_bf16_supported()}")
 
-# Catalog/schema should already exist; create volume only.
-spark.sql(f"CREATE VOLUME IF NOT EXISTS {UC_CATALOG}.{UC_SCHEMA}.{UC_VOLUME}")
+# Prefer an existing managed volume (e.g. benchmarks.default.liquid_ft).
+# CREATE is best-effort — some catalogs have broken storage credentials.
+try:
+    spark.sql(f"CREATE VOLUME IF NOT EXISTS {UC_CATALOG}.{UC_SCHEMA}.{UC_VOLUME}")
+except Exception as e:
+    print(f"CREATE VOLUME skipped/failed ({type(e).__name__}): {e}")
+    print("Continuing if volume already exists...")
+
+# Fail fast if the path is not usable
+dbutils.fs.mkdirs(f"{VOLUME_ROOT}/checkpoints")
 print(f"Volume ready: {VOLUME_ROOT}")
 
 # COMMAND ----------
@@ -79,7 +87,17 @@ print(f"Volume ready: {VOLUME_ROOT}")
 
 # COMMAND ----------
 
-from datasets import Dataset, load_dataset
+import os
+
+import pandas as pd
+from datasets import Dataset
+from huggingface_hub import hf_hub_download, list_repo_files
+
+# Cache HF downloads on the UC volume (survives cluster restarts; avoids local-disk warnings).
+os.environ["HF_HOME"] = f"{VOLUME_ROOT}/hf"
+os.environ["HUGGINGFACE_HUB_CACHE"] = f"{VOLUME_ROOT}/hf/hub"
+os.environ["HF_DATASETS_CACHE"] = f"{VOLUME_ROOT}/hf/datasets"
+dbutils.fs.mkdirs(f"{VOLUME_ROOT}/hf")
 
 # (user question, dataset field used as assistant answer)
 QUESTION_SPECS = [
@@ -114,24 +132,29 @@ def make_example(row: dict, q_idx: int) -> dict:
     }
 
 
-print(f"Streaming first {N_SAMPLES} rows from {DATASET_ID} ...")
-stream = load_dataset(DATASET_ID, split="train", streaming=True)
+# Avoid datasets.load_dataset streaming — Databricks HF patches can break with
+# huggingface_hub HfFileSystem (maxdepth TypeError). Load one parquet shard instead.
+print(f"Loading up to {N_SAMPLES} rows from {DATASET_ID} (parquet shard) ...")
+repo_files = list_repo_files(DATASET_ID, repo_type="dataset")
+parquet_files = sorted(f for f in repo_files if f.endswith(".parquet"))
+assert parquet_files, f"No parquet files found in {DATASET_ID}"
+print(f"Using shard: {parquet_files[0]} ({len(parquet_files)} parquet files total)")
 
-raw_rows = []
-train_rows = []
-for i, row in enumerate(stream):
-    if i >= N_SAMPLES:
-        break
-    raw_rows.append(row)
-    train_rows.append(make_example(row, q_idx=i))
-
+local_parquet = hf_hub_download(
+    repo_id=DATASET_ID,
+    filename=parquet_files[0],
+    repo_type="dataset",
+)
+df = pd.read_parquet(local_parquet).head(N_SAMPLES)
+raw_rows = df.to_dict(orient="records")
+train_rows = [make_example(row, q_idx=i) for i, row in enumerate(raw_rows)]
 train_ds = Dataset.from_list(train_rows)
 print(f"Train examples: {len(train_ds)}")
 
 # Fixed eval: first 3 personas, always ask career goals (clear dataset-grounded answer)
 EVAL_QUESTION, EVAL_FIELD = QUESTION_SPECS[2]
 eval_examples = []
-for i in range(3):
+for i in range(min(3, len(raw_rows))):
     row = raw_rows[i]
     gt = (row.get(EVAL_FIELD) or row.get("persona") or "").strip()
     eval_examples.append(

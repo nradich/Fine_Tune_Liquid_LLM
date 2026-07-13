@@ -8,7 +8,7 @@ bundle:
 variables:
   uc_catalog:
     description: Unity Catalog catalog for the volume
-    default: main
+    default: benchmarks
   uc_schema:
     description: Unity Catalog schema for the volume
     default: default

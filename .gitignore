@@ -1,0 +1,11 @@
+.databricks/
+.venv/
+__pycache__/
+*.pyc
+.idea/
+.vscode/
+*.egg-info/
+dist/
+build/
+.env
+.DS_Store

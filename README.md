@@ -46,5 +46,19 @@ The job uses serverless GPU **1xH100** + AI v5 (`databricks.yml`).
 ## Notes
 
 - Defaults write to managed volume `benchmarks.default.liquid_ft` (works in this workspace). Avoid `main` if UC storage credentials are broken.
-- Training uses a small demo slice (~3k rows, 1 epoch), not the full 1M dataset.
-- The notebook streams the HF dataset so it does not download all ~2.6GB up front.
+- Training uses a small demo slice (~3k rows, 1 epoch, 188 steps), not the full 1M dataset.
+- Data is pulled as a single parquet shard via `hf_hub_download` (avoids a Databricks HF streaming bug).
+- Notebook `%pip install`s TRL/PEFT/etc. AI Runtime jobs cannot use the Environments panel for deps.
+
+## Results (last successful run)
+
+Training loss dropped ~56% and token accuracy climbed ~54% over 1 epoch:
+
+| Step | Loss | Mean token accuracy |
+|-----:|-----:|--------------------:|
+| 10   | 3.77 | 0.43 |
+| 50   | 2.00 | 0.61 |
+| 100  | 1.78 | 0.63 |
+| 180  | 1.66 | 0.66 |
+
+Adapter (~2 MB) saved at `/Volumes/benchmarks/default/liquid_ft/adapters/lfm25-personas-lora/`.
